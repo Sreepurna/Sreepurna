@@ -1,0 +1,49 @@
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.List;
+
+public class ShelfExtIdFetcher {
+    public static List<String> fetchShelfExtIds(String jsonString) throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode rootNode = objectMapper.readTree(jsonString);
+        List<String> shelfExtIds = new ArrayList<>();
+
+        // Traversing locations
+        JsonNode locations = rootNode.get("locations");
+        if (locations != null && locations.isArray()) {
+            for (JsonNode location : locations) {
+                JsonNode networkElements = location.get("networkElement");
+                if (networkElements != null && networkElements.isArray()) {
+                    for (JsonNode networkElement : networkElements) {
+                        JsonNode shelves = networkElement.get("shelf");
+                        if (shelves != null && shelves.isArray()) {
+                            for (JsonNode shelf : shelves) {
+                                JsonNode ports = shelf.get("port");
+                                if (ports != null && ports.isArray()) {
+                                    for (JsonNode port : ports) {
+                                        JsonNode shelfExtIdNode = port.get("shelfExtId");
+                                        if (shelfExtIdNode != null) {
+                                            shelfExtIds.add(shelfExtIdNode.asText());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return shelfExtIds;
+    }
+
+    public static void main(String[] args) {
+        String jsonString = "{ \"locations\": [{ \"networkElement\": [], \"rack\": [] }, { \"networkElement\": [], \"rack\": [] }, { \"networkElement\": [ { \"extId\": null, \"shelf\": [ { \"id\": \"679065ac41558213e3b7348f\", \"extId\": \"2001014\", \"port\": [{ \"id\": \"679065b141558213e3b73491\", \"shelfExtId\": \"2001014\", \"vlanInfo\": null }, { \"id\": \"679065b141558213e3b73490\", \"shelfExtId\": \"2001014\", \"tp_type\": \"PHYSICAL\", \"vlanInfo\": null }] }] }] }] }";
+        try {
+            List<String> shelfExtIds = fetchShelfExtIds(jsonString);
+            System.out.println("ShelfExtIds: " + shelfExtIds);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
