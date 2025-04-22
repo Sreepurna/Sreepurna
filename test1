@@ -1,0 +1,77 @@
+import java.util.List;
+import java.util.ArrayList;
+import java.util.stream.Collectors;
+
+public class PortCollector {
+    public static List<Port> collectPorts(List<Location> locationList) {
+        List<Port> ports = new ArrayList<>();
+
+        if (locationList != null) {
+            locationList.forEach(location -> {
+                // Traverse Rack -> NetworkElement path
+                if (location.getRack() != null) {
+                    location.getRack().forEach(rack -> traverseNetworkElement(rack.getNetworkElement(), ports));
+                }
+
+                // Directly traverse NetworkElement path if no Rack exists
+                traverseNetworkElement(location.getNetworkElement(), ports);
+            });
+        }
+        return ports;
+    }
+
+    private static void traverseNetworkElement(List<NetworkElement> networkElements, List<Port> ports) {
+        if (networkElements != null) {
+            networkElements.forEach(netEle -> {
+                if (netEle.getShelf() != null) {
+                    netEle.getShelf().forEach(shelf -> {
+                        if (shelf.getPort() != null) {
+                            ports.addAll(shelf.getPort()); // Shelf → Port
+                        }
+                        if (shelf.getSlot() != null) {
+                            shelf.getSlot().forEach(slot -> traverseSlot(slot, ports)); // Shelf → Slot → Card → Port
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    private static void traverseSlot(Slot slot, List<Port> ports) {
+        if (slot.getCard() != null) {
+            slot.getCard().forEach(card -> {
+                if (card.getPort() != null) {
+                    ports.addAll(card.getPort()); // Card → Port
+                }
+                if (card.getSubSlot() != null) {
+                    card.getSubSlot().forEach(subSlot -> traverseSubSlot(subSlot, ports)); // Card → SubSlot → SubCard → Port
+                }
+            });
+        }
+    }
+
+    private static void traverseSubSlot(SubSlot subSlot, List<Port> ports) {
+        if (subSlot.getSubCard() != null) {
+            subSlot.getSubCard().forEach(subCard -> {
+                if (subCard.getPort() != null) {
+                    ports.addAll(subCard.getPort()); // SubCard → Port
+                }
+            });
+        }
+    }
+
+    public static List<String> fetchVlanInfo(List<Port> ports) {
+        return ports.stream()
+            .map(port -> port.getVlanInfo())
+            .filter(vlanInfo -> vlanInfo != null)
+            .collect(Collectors.toList());
+    }
+
+    public static void main(String[] args) {
+        List<Location> locationList = // Assume this is initialized correctly
+        List<Port> ports = collectPorts(locationList);
+        List<String> vlanInfos = fetchVlanInfo(ports);
+
+        System.out.println("VLAN Info: " + vlanInfos);
+    }
+}
