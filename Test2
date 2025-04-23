@@ -1,0 +1,57 @@
+import java.util.List;
+import java.util.ArrayList;
+
+public class PortCollector {
+    public static List<Port> collectPorts(List<Location> locations) {
+        List<Port> ports = new ArrayList<>();
+
+        if (locations != null) {
+            locations.forEach(location -> {
+                if (location.getNetworkElement() != null) {
+                    location.getNetworkElement().forEach(netElement -> {
+                        if (netElement.getShelf() != null) {
+                            netElement.getShelf().forEach(shelf -> {
+                                if (shelf.getPort() != null) {
+                                    ports.addAll(shelf.getPort()); // Direct Shelf → Port
+                                }
+                                if (shelf.getSlot() != null) {
+                                    shelf.getSlot().forEach(slot -> traverseSlot(slot, ports)); // Shelf → Slot traversal
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        return ports;
+    }
+
+    private static void traverseSlot(Slot slot, List<Port> ports) {
+        if (slot.getCard() != null) {
+            slot.getCard().forEach(card -> {
+                if (card.getPort() != null) {
+                    ports.addAll(card.getPort()); // Card → Port
+                }
+                if (card.getSubSlot() != null) {
+                    card.getSubSlot().forEach(subSlot -> {
+                        if (subSlot.getSubCard() != null) {
+                            subSlot.getSubCard().forEach(subCard -> {
+                                if (subCard.getPort() != null) {
+                                    ports.addAll(subCard.getPort()); // SubCard → Port
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    public static void main(String[] args) {
+        List<Location> locations = // Assume this is initialized correctly
+        List<Port> collectedPorts = collectPorts(locations);
+
+        collectedPorts.forEach(port -> System.out.println("Collected Port: " + port));
+    }
+}
