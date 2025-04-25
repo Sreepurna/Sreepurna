@@ -1,0 +1,63 @@
+import static org.junit.Assert.*;
+import org.junit.Before;
+import org.junit.Test;
+
+public class PopSubSlotNameTest {
+
+    private com.verizon.uts.cdo.delta.output.jsongenobj.equipment.SubSlot slotR;
+    private com.verizon.uts.edo.cnd.SubSlot cndSlot;
+
+    @Before
+    public void setUp() {
+        slotR = new com.verizon.uts.cdo.delta.output.jsongenobj.equipment.SubSlot();
+        cndSlot = new com.verizon.uts.edo.cnd.SubSlot();
+    }
+
+    @Test
+    public void testPopSubSlotName_ModelContainsCRS() {
+        cndSlot.setName("0/1/02");
+        popSubSlotName(slotR, cndSlot, "CRS-Model", "DefaultName");
+
+        assertEquals("2", slotR.getSlotName()); // Removes leading zeros
+    }
+
+    @Test
+    public void testPopSubSlotName_ModelContainsNCS() {
+        cndSlot.setName("A/B/C");
+        popSubSlotName(slotR, cndSlot, "NCS-Model", "DefaultName");
+
+        assertEquals("C", slotR.getSlotName());
+    }
+
+    @Test
+    public void testPopSubSlotName_WithAsteriskShouldReplace() {
+        cndSlot.setName("X/Y/*");
+        popSubSlotName(slotR, cndSlot, "CRS-Model", "DefaultName");
+
+        assertEquals("DefaultName", slotR.getSlotName()); // "*" replaced with default name
+    }
+
+    @Test
+    public void testPopSubSlotName_ModelDoesNotContainCRSOrNCS() {
+        cndSlot.setName("M/N/O");
+        popSubSlotName(slotR, cndSlot, "XYZ", "DefaultName");
+
+        assertEquals("M/N/O", slotR.getSlotName()); // No modification since model does not match
+    }
+
+    @Test
+    public void testPopSubSlotName_NullModel() {
+        cndSlot.setName("1/2/3");
+        popSubSlotName(slotR, cndSlot, null, "DefaultName");
+
+        assertEquals("1/2/3", slotR.getSlotName());
+    }
+
+    @Test
+    public void testPopSubSlotName_NullSlotName() {
+        cndSlot.setName(null);
+        popSubSlotName(slotR, cndSlot, "CRS-Model", "DefaultName");
+
+        assertEquals("DefaultName", slotR.getSlotName()); // Uses default name
+    }
+}
