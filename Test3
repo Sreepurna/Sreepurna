@@ -1,0 +1,101 @@
+import static org.junit.Assert.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.Before;
+import org.junit.Test;
+import java.util.*;
+
+public class NetworkElementTest {
+
+    private List<Location> locations;
+
+    @Before
+    public void setUp() {
+        locations = new ArrayList<>();
+
+        Location loc1 = new Location();
+        Location loc2 = new Location();
+
+        loc1.setSubLocations(Arrays.asList(loc2));
+        locations.add(loc1);
+    }
+
+    @Test
+    public void testCollectPorts_ValidLocations() {
+        List<Port> ports = collectPorts(locations);
+        assertNotNull(ports);
+    }
+
+    @Test
+    public void testCollectPorts_NullLocations() {
+        List<Port> ports = collectPorts(null);
+        assertNotNull(ports);
+        assertEquals(0, ports.size());
+    }
+
+    @Test
+    public void testTraverseNetworkElement_ValidElements() {
+        List<Port> ports = new ArrayList<>();
+        List<NetworkElement> netElements = new ArrayList<>();
+        NetworkElement ne = new NetworkElement();
+        Shelf shelf = new Shelf();
+        ne.setShelf(Collections.singletonList(shelf));
+        netElements.add(ne);
+
+        traverseNetworkElement(netElements, ports);
+
+        assertNotNull(ports);
+    }
+
+    @Test
+    public void testTraverseNetworkElement_NullElements() {
+        List<Port> ports = new ArrayList<>();
+        traverseNetworkElement(null, ports);
+        assertEquals(0, ports.size());
+    }
+
+    @Test
+    public void testTraverseSlot_NullSlot() {
+        List<Port> ports = new ArrayList<>();
+        traverseSlot(null, ports);
+        assertEquals(0, ports.size());
+    }
+
+    @Test
+    public void testVlanInfoMap_ValidAttributes() {
+        List<Attribute> attributes = new ArrayList<>();
+        vlanInfoMap(attributes, "vlanInfo.name", "TestVlan");
+
+        assertEquals(1, attributes.size());
+        assertEquals("vlanInfo.name", attributes.get(0).getName());
+        assertEquals("TestVlan", attributes.get(0).getValue());
+    }
+
+    @Test
+    public void testVlanInfoMap_EmptyValue() {
+        List<Attribute> attributes = new ArrayList<>();
+        vlanInfoMap(attributes, "vlanInfo.name", "");
+
+        assertEquals(0, attributes.size());
+    }
+
+    @Test
+    public void testParseJsonResponse() throws Exception {
+        String jsonResponse = "{ \"vlanInfo\": { \"name\": \"Test VLAN\", \"id\": \"12345\", \"role\": \"Primary\", \"status\": \"Active\" } }";
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonResponse response = objectMapper.readValue(jsonResponse, JsonResponse.class);
+
+        assertNotNull(response);
+        assertEquals("Test VLAN", response.getVlanInfo().getName());
+        assertEquals("12345", response.getVlanInfo().getId());
+    }
+
+    @Test
+    public void testExceptionHandling() {
+        try {
+            throw new RuntimeException("Simulated Exception");
+        } catch (RuntimeException e) {
+            assertEquals("Simulated Exception", e.getMessage());
+        }
+    }
+}
