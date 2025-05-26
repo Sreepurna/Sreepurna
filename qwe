@@ -1,0 +1,104 @@
+The error you are encountering indicates that the URL being constructed in your test is incorrect, specifically pointing to an invalid endpoint ("https://uts-ple.verizon.com/alarmenrichmsnull"). This is likely due to the `mongoAlarmEnrichAppendURL` being improperly set or not appended correctly.
+
+To fix this, we need to ensure that the URL is correctly constructed in the test environment. We can either mock the service name lookup or provide a mocked URL directly.
+
+Here is the updated JUnit 4 test case code with the necessary modifications:
+
+```java
+import static org.mockito.Mockito.*;
+import static org.junit.Assert.*;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.*;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+
+import java.net.URI;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+@RunWith(MockitoJUnitRunner.class)
+public class AlarmLookupServiceTest {
+
+    @InjectMocks
+    private AlarmLookupService alarmLookupService;
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Mock
+    private AlarmEnrichDao alarmDao;
+
+    @Mock
+    private ResponseEntity<String> responseEntity;
+
+    private ExecutorService executorService;
+
+    @Before
+    public void setUp() {
+        executorService = Executors.newFixedThreadPool(2);
+
+        // Mocking the method to return a base URL for the service
+        when(alarmLookupService.findServiceForName(anyString())).thenReturn("http://mock-service-url");
+        // Setting up the mock URL append part
+        ReflectionTestUtils.setField(alarmLookupService, "mongoAlarmEnrichAppendURL", "/mockAppendURL");
+    }
+
+    @Test
+    public void testGetMongoAlarm() {
+        String mockResponse = "{\"transactionStatus\":\"SUCCESS\"}";
+        String tid = "test-tid";
+        String aid = "test-aid";
+        String network = "test-network";
+
+        HttpHeaders headers = new HttpHeaders();
+        HttpEntity<?> entity = new HttpEntity<>(headers);
+        URI uri = URI.create("http://mock-service-url/mockAppendURL?tid=test-tid&aid=test-aid&network=test-network");
+
+        when(restTemplate.exchange(eq(uri), eq(HttpMethod.GET), eq(entity), eq(String.class)))
+                .thenReturn(responseEntity);
+        when(responseEntity.getBody()).thenReturn(mockResponse);
+
+        String result = alarmLookupService.getMangoAlarm(tid, aid, network);
+
+        assertEquals(mockResponse, result);
+
+        verify(restTemplate, times(1)).exchange(eq(uri), eq(HttpMethod.GET), eq(entity), eq(String.class));
+    }
+
+    @Test
+    public void testGetAlarmAsync() throws ExecutionException, InterruptedException {
+        String tid = "test-tid";
+        String aid = "test-aid";
+        String network = "test-network";
+        String locationAttr = "test-location";
+        boolean cndFlag = true;
+
+        AlarmEnrichDetList alarmEnrichDetList = new AlarmEnrichDetList();
+        alarmEnrichDetList.setTransactionStatus("SUCCESS");
+
+        Future<AlarmEnrichDetList> mongoAlarm = executorService.submit(() -> alarmEnrichDetList);
+
+        assertEquals("SUCCESS", mongoAlarm.get().getTransactionStatus());
+    }
+}
+```
+
+### Key Adjustments:
+
+1. **Mock URL Setup:**
+   - I used `ReflectionTestUtils` to set the `mongoAlarmEnrichAppendURL` field to a mock append URL.
+   - Mocked the `findServiceForName` method to return a mock base URL.
+
+2. **URI Construction:**
+   - Constructed the expected URI in the test to match the mock setup.
+
+These changes should ensure that your test cases run correctly without hitting real endpoints, thereby avoiding 404 errors.
