@@ -1,0 +1,289 @@
+To achieve 100% code coverage for the `getAlarmAsync` method in the `AlarmEnrichDetList` class, we need to write JUnit 4 test cases that cover all execution paths, including all catch blocks and the nested try-catch in the executor shutdown logic. Below is a comprehensive set of JUnit 4 test cases using Mockito for mocking dependencies and PowerMock to handle static methods and private fields.
+
+### Assumptions and Setup
+- The `getAlarmLookup` method and `findServiceForName` method are not shown in the provided code, so they will be mocked.
+- The `addSecurityUrlToMS` method is assumed to return `HttpHeaders`.
+- The `QueryConstants` class contains constants like `STATUS_SUCCESS`.
+- The `AlarmEnrich` class exists and is used in the `alarmEnrichList`.
+- The `mongoAlarmEnrichAppendURL` is injected via Spring's `@Value` annotation.
+- The test cases will simulate various scenarios, including successful responses, exceptions from `cassandraAlarm` and `mongoAlarm`, and `InterruptedException` during executor shutdown.
+
+### Test Code
+```java
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
+
+import java.util.ArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import com.google.gson.Gson;
+
+@RunWith(PowerMockRunner.class)
+@PrepareForTest({ Executors.class, UriComponentsBuilder.class, AlarmEnrichDetList.class })
+public class AlarmEnrichDetListTest {
+
+    @InjectMocks
+    private AlarmEnrichDetList alarmEnrichDetList;
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Mock
+    private HttpHeaders headers;
+
+    @Mock
+    private ResponseEntity<String> responseEntity;
+
+    @Mock
+    private Gson gson;
+
+    @Mock
+    private ExecutorService executorService;
+
+    @Mock
+    private Future<AlarmEnrichDetList> cassandraFuture;
+
+    @Mock
+    private Future<AlarmEnrichDetList> mongoFuture;
+
+    @Before
+    public void setUp() throws Exception {
+        MockitoAnnotations.initMocks(this);
+
+        // Mock the private field mongoAlarmEnrichAppendURL
+        PowerMockito.field(AlarmEnrichDetList.class, "mongoAlarmEnrichAppendURL").set(alarmEnrichDetList, "/enrich");
+
+        // Mock static method Executors.newFixedThreadPool
+        PowerMockito.mockStatic(Executors.class);
+        when(Executors.newFixedThreadPool(2)).thenReturn(executorService);
+        when(executorService.submit(any(Callable.class))).thenReturn(cassandraFuture, mongoFuture);
+
+        // Mock UriComponentsBuilder
+        PowerMockito.mockStatic(UriComponentsBuilder.class);
+        UriComponentsBuilder uriComponentsBuilder = mock(UriComponentsBuilder.class);
+        when(UriComponentsBuilder.fromUriString(anyString())).thenReturn(uriComponentsBuilder);
+        when(uriComponentsBuilder.queryParam(anyString(), anyString())).thenReturn(uriComponentsBuilder);
+        when(uriComponentsBuilder.build()).thenReturn(uriComponentsBuilder);
+        when(uriComponentsBuilder.toUri()).thenReturn(new java.net.URI("http://test.com/enrich?tid=tid1&aid=aid1&network=network1"));
+
+        // Mock findServiceForName and addSecurityUrlToMS
+        PowerMockito.doReturn("http://test.com").when(alarmEnrichDetList, "findServiceForName", anyString());
+        PowerMockito.doReturn(headers).when(alarmEnrichDetList, "addSecurityUrlToMS");
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraSuccess() throws Exception {
+        // Arrange
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("SUCCESS");
+        cassandraResult.setAlarmEnrichList(new ArrayList<>());
+
+        when(cassandraFuture.get()).thenReturn(cassandraResult);
+        when(executorService.awaitTermination(800, TimeUnit.MILLISECONDS)).thenReturn(true);
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid1", "aid1", "network1", "locationAttr", true);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.getTransactionStatus());
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraThrows_MongoSuccess() throws Exception {
+        // Arrange
+        AlarmEnrichDetList mongoResult = new AlarmEnrichDetList();
+        mongoResult.setTransactionStatus("SUCCESS");
+        mongoResult.setAlarmEnrichList(new ArrayList<>());
+
+        when(cassandraFuture.get()).thenThrow(new ExecutionException(new RuntimeException("Cassandra error")));
+        when(mongoFuture.get()).thenReturn(mongoResult);
+        when(gson.fromJson(anyString(), any(Class.class))).thenReturn(mongoResult);
+        when(restTemplate.exchange(any(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
+                .thenReturn(responseEntity);
+        when(responseEntity.getBody()).thenReturn("{\"transactionStatus\":\"SUCCESS\"}");
+        when(executorService.awaitTermination(800, TimeUnit.MILLISECONDS)).thenReturn(true);
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid1", "aid1", "network1", "locationAttr", true);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.getTransactionStatus());
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraThrows_MongoFails() throws Exception {
+        // Arrange
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("FAILURE");
+        AlarmEnrichDetList mongoResult = new AlarmEnrichDetList();
+        mongoResult.setTransactionStatus("FAILURE");
+
+        when(cassandraFuture.get()).thenThrow(new ExecutionException(new RuntimeException("Cassandra error")));
+        when(mongoFuture.get()).thenReturn(mongoResult);
+        when(gson.fromJson(anyString(), any(Class.class))).thenReturn(mongoResult);
+        when(restTemplate.exchange(any(), any(HttpMethod.class), any(HttpEntity.class), any(Class.class)))
+                .thenReturn(responseEntity);
+        when(responseEntity.getBody()).thenReturn("{\"transactionStatus\":\"FAILURE\"}");
+        when(executorService.awaitTermination(800, TimeUnit.MILLISECONDS)).thenReturn(true);
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid1", "aid1", "network1", "locationAttr", true);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("FAILURE", result.getTransactionStatus());
+    }
+
+    @Test
+    public void testGetAlarmAsync_ExecutorShutdownInterruptedOnce() throws Exception {
+        // Arrange
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("SUCCESS");
+        cassandraResult.setAlarmEnrichList(new ArrayList<>());
+
+        when(cassandraFuture.get()).thenReturn(cassandraResult);
+        when(executorService.awaitTermination(800, TimeUnit.MILLISECONDS)).thenReturn(false).thenReturn(true);
+        doReturn(null).when(executorService).shutdownNow();
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid1", "aid1", "network1", "locationAttr", true);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.getTransactionStatus());
+    }
+
+    @Test
+    public void testGetAlarmAsync_ExecutorShutdownInterruptedTwice() throws Exception {
+        // Arrange
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("SUCCESS");
+        cassandraResult.setAlarmEnrichList(new ArrayList<>());
+
+        when(cassandraFuture.get()).thenReturn(cassandraResult);
+        when(executorService.awaitTermination(800, TimeUnit.MILLISECONDS)).thenReturn(false).thenThrow(new InterruptedException());
+        doReturn(null).when(executorService).shutdownNow();
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid1", "aid1", "network1", "locationAttr", true);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.getTransactionStatus());
+    }
+}
+```
+
+### Explanation of Test Cases
+1. **testGetAlarmAsync_CassandraSuccess**:
+   - Tests the happy path where `cassandraAlarm` returns a successful result (`STATUS_SUCCESS`).
+   - Verifies that the method returns the `cassandraResult` and the executor shuts down cleanly.
+
+2. **testGetAlarmAsync_CassandraThrows_MongoSuccess**:
+   - Tests the catch block where `cassandraAlarm.get()` throws an `ExecutionException`.
+   - Simulates `mongoAlarm` returning a successful result (`STATUS_SUCCESS`).
+   - Verifies that the method falls back to the Mongo result.
+
+3. **testGetAlarmAsync_CassandraThrows_MongoFails**:
+   - Tests the catch block where `cassandraAlarm.get()` throws an `ExecutionException` and `mongo ascended
+   - Simulates `mongoAlarm` returning a failed result (`STATUS_FAILURE`).
+   - Verifies that the method falls back to the Cassandra result.
+
+4. **testGetAlarmAsync_ExecutorShutdownInterruptedOnce**:
+   - Tests the nested try-catch block where the first `awaitTermination` returns `false` (timeout), triggering `shutdownNow`.
+   - Ensures the executor is shut down and the correct result is returned.
+
+5. **testGetAlarmAsync_ExecutorShutdownInterruptedTwice**:
+   - Tests the nested try-catch block where the first `awaitTermination` returns `false` and the second throws an `InterruptedException`.
+   - Ensures the executor is shut down via `shutdownNow` and the correct result is returned.
+
+### Key Points
+- **Dependencies**: The tests use Mockito to mock `RestTemplate`, `Gson`, `ExecutorService`, `Future`, and `HttpHeaders`. PowerMock is used to mock static methods (`Executors.newFixedThreadPool`, `UriComponentsBuilder.fromUriString`) and private methods/fields.
+- **Coverage**: The tests cover all branches:
+  - Successful Cassandra result.
+  - Cassandra failure with successful Mongo result.
+  - Cassandra failure with failed Mongo result.
+  - Executor shutdown timeout (first `awaitTermination` returns `false`).
+  - Executor shutdown interrupted (second `awaitTermination` throws `InterruptedException`).
+- **Mocks**: The `getAlarmLookup` and `findServiceForName` methods are mocked using PowerMock's `doReturn` for private/protected methods.
+- **QueryConstants**: Assumed to have `STATUS_SUCCESS` as "SUCCESS".
+- **Logger**: The logger is not mocked as it does not affect the logic but can be mocked if needed for strict coverage.
+
+### Requirements
+Add the following dependencies to your `pom.xml` for Maven (or equivalent for Gradle):
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>junit</groupId>
+        <artifactId>junit</artifactId>
+        <version>4.13.2</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-core</artifactId>
+        <version>4.11.0</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.powermock</groupId>
+        <artifactId>powermock-module-junit4</artifactId>
+        <version>2.0.9</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.powermock</groupId>
+        <artifactId>powermock-api-mockito2</artifactId>
+        <version>2.0.9</version>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-web</artifactId>
+        <version>5.3.33</version>
+    </dependency>
+    <dependency>
+        <groupId>com.google.code.gson</groupId>
+        <artifactId>gson</artifactId>
+        <version>2.10.1</version>
+    </dependency>
+</dependencies>
+```
+
+### Notes
+- Ensure the `AlarmEnrich` class is available or mocked if necessary.
+- The `logger` is assumed to be a standard logging framework (e.g., SLF4J). If it impacts coverage, mock it using a logging framework-specific mocking technique.
+- Adjust the mocked URLs, JSON responses, or other parameters to match your application's actual behavior.
+- Run the tests with a code coverage tool (e.g., JaCoCo) to verify 100% coverage of the `getAlarmAsync` method.
+
+This test suite should provide full branch coverage for the `getAlarmAsync` method, including all catch blocks and executor shutdown scenarios.
