@@ -1,0 +1,74 @@
+import static org.mockito.Mockito.*;
+import static org.junit.Assert.*;
+
+import java.util.concurrent.*;
+
+import org.junit.*;
+import org.junit.runner.RunWith;
+import org.mockito.*;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.slf4j.Logger;
+
+@RunWith(MockitoJUnitRunner.class)
+public class AlarmLookupServiceTest {
+
+    @Mock
+    private AlarmEnrichDao alarmDao;
+
+    @InjectMocks
+    private AlarmLookupService alarmLookupService;
+
+    private ExecutorService executorService;
+
+    @Before
+    public void setUp() {
+        executorService = Executors.newFixedThreadPool(2);
+    }
+
+    @Test
+    public void testGetAlarmAsync_SuccessfulCassandraLookup() throws Exception {
+        AlarmEnrichDetList cassandraResult = mock(AlarmEnrichDetList.class);
+        when(cassandraResult.getTransactionStatus()).thenReturn("SUCCESS");
+
+        AlarmEnrichDetList mongoResult = mock(AlarmEnrichDetList.class);
+        when(mongoResult.getTransactionStatus()).thenReturn("FAILURE");
+
+        AlarmLookupService spyService = spy(alarmLookupService);
+        doReturn(cassandraResult).when(spyService).getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        doReturn(mongoResult).when(spyService).getMongoAlarm(anyString(), anyString(), anyString());
+
+        AlarmEnrichDetList result = spyService.getAlarmAsync("tid", "aid", "network", "location", true);
+        assertEquals(cassandraResult, result);
+    }
+
+    @Test
+    public void testGetAlarmAsync_SuccessfulMongoLookup() throws Exception {
+        AlarmEnrichDetList cassandraResult = mock(AlarmEnrichDetList.class);
+        when(cassandraResult.getTransactionStatus()).thenReturn("FAILURE");
+
+        AlarmEnrichDetList mongoResult = mock(AlarmEnrichDetList.class);
+        when(mongoResult.getTransactionStatus()).thenReturn("SUCCESS");
+
+        AlarmLookupService spyService = spy(alarmLookupService);
+        doReturn(cassandraResult).when(spyService).getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        doReturn(mongoResult).when(spyService).getMongoAlarm(anyString(), anyString(), anyString());
+
+        AlarmEnrichDetList result = spyService.getAlarmAsync("tid", "aid", "network", "location", true);
+        assertEquals(mongoResult, result);
+    }
+
+    @Test
+    public void testGetAlarmAsync_ExceptionHandling() throws Exception {
+        AlarmLookupService spyService = spy(alarmLookupService);
+        doThrow(new ExecutionException("Error", new Exception())).when(spyService).getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        doReturn(mock(AlarmEnrichDetList.class)).when(spyService).getMongoAlarm(anyString(), anyString(), anyString());
+
+        AlarmEnrichDetList result = spyService.getAlarmAsync("tid", "aid", "network", "location", true);
+        assertNotNull(result);
+    }
+
+    @After
+    public void tearDown() {
+        executorService.shutdown();
+    }
+}
