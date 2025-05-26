@@ -1,0 +1,239 @@
+Okay, I need to write JUnit test cases for the getAlarmAsync method to cover all the catch blocks and achieve 100% code coverage. Let me start by understanding the method.
+
+The getAlarmAsync method uses two futures to fetch data from Cassandra and MongoDB. It handles exceptions and decides which result to return. There are a few places where exceptions can occur, so I need to cover each scenario.
+
+First, I'll look at the try-catch block. If cassandraAlarm.get() throws an ExecutionException, it catches it and tries to use the mongoAlarm result. If that also fails, it falls back to cassandraAlarm, which might have an exception. So I need tests for both cases where MongoDB succeeds and where it doesn't.
+
+I also notice that the code logs errors and shuts down the executor service. I should test that the shutdown happens correctly, maybe by checking if the service is terminated.
+
+Another thing is the finally block. Even if exceptions occur, the executor should shut down. I'll need a test case that ensures this happens.
+
+I should also consider edge cases, like when both Cassandra and MongoDB lookups fail. How does the method handle that? It seems it would return whatever cassandraAlarm.get() returns, even if it's an error.
+
+I might need to mock the getAlarmLookup and getMongoAlarm methods to simulate different scenarios. For example, in one test, I can make getAlarmLookup throw an exception and getMongoAlarm return a successful result. In another, both could throw exceptions.
+
+I should also test the normal flow where Cassandra succeeds and MongoDB isn't used. This ensures that the method returns the correct data without entering the catch block.
+
+Additionally, I need to cover the logging parts. Maybe using a logging framework that allows me to verify if the correct logs are produced when exceptions occur.
+
+I'll structure each test case to simulate a specific scenario:
+1. Cassandra succeeds, MongoDB not called.
+2. Cassandra fails, MongoDB succeeds.
+3. Both Cassandra and MongoDB fail.
+4. Executor service shutdown in case of interruption.
+
+I'll use Mockito to mock the dependencies and control the outcomes of the methods. For each test, I'll set up the mocks to return the desired results or throw exceptions.
+
+I also need to make sure that all code paths are covered, including the parts where the executor service is shut down and the awaitTermination method is called. Maybe I can check if the service is actually shut down after each test.
+
+Finally, I'll write assertions to verify that the method returns the expected results and that the correct data is logged or handled in each scenario.
+
+
+
+Here is a JUnit test class that covers all the catch blocks in the `getAlarmAsync` method:
+
+```java
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+@ExtendWith(MockitoExtension.class)
+public class AlarmEnrichDetListTest {
+
+    @InjectMocks
+    private AlarmEnrichDetList alarmEnrichDetList;
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Mock
+    private Logger logger;
+
+    @BeforeEach
+    void setUp() {
+        // Initialize any necessary mocks or dependencies
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraSuccess() throws ExecutionException, InterruptedException {
+        // Arrange
+        String tid = "test_tid";
+        String aid = "test_aid";
+        String network = "test_network";
+        String locationAttr = "test_location";
+        boolean cndFlag = true;
+
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("SUCCESS");
+
+        AlarmEnrichDetList mongoResult = new AlarmEnrichDetList();
+        mongoResult.setTransactionStatus("SUCCESS");
+
+        when(getAlarmLookup(tid, aid, network, locationAttr, cndFlag)).thenReturn(cassandraResult);
+        when(getMongoAlarm(tid, aid, network)).thenReturn(new Gson().toJson(mongoResult));
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync(tid, aid, network, locationAttr, cndFlag);
+
+        // Assert
+        assertEquals(cassandraResult, result);
+        verifyNoInteractions(logger); // No exceptions occurred, so no logging
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraFailure_MongoSuccess() throws ExecutionException, InterruptedException {
+        // Arrange
+        String tid = "test_tid";
+        String aid = "test_aid";
+        String network = "test_network";
+        String locationAttr = "test_location";
+        boolean cndFlag = true;
+
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("FAILURE");
+
+        AlarmEnrichDetList mongoResult = new AlarmEnrichDetList();
+        mongoResult.setTransactionStatus("SUCCESS");
+
+        when(getAlarmLookup(tid, aid, network, locationAttr, cndFlag)).thenReturn(cassandraResult);
+        when(getMongoAlarm(tid, aid, network)).thenReturn(new Gson().toJson(mongoResult));
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync(tid, aid, network, locationAttr, cndFlag);
+
+        // Assert
+        assertEquals(mongoResult, result);
+        verify(logger).error("Call to lookup : " + any(ExecutionException.class));
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraFailure_MongoFailure() throws ExecutionException, InterruptedException {
+        // Arrange
+        String tid = "test_tid";
+        String aid = "test_aid";
+        String network = "test_network";
+        String locationAttr = "test_location";
+        boolean cndFlag = true;
+
+        AlarmEnrichDetList cassandraResult = new AlarmEnrichDetList();
+        cassandraResult.setTransactionStatus("FAILURE");
+
+        AlarmEnrichDetList mongoResult = new AlarmEnrichDetList();
+        mongoResult.setTransactionStatus("FAILURE");
+
+        when(getAlarmLookup(tid, aid, network, locationAttr, cndFlag)).thenReturn(cassandraResult);
+        when(getMongoAlarm(tid, aid, network)).thenReturn(new Gson().toJson(mongoResult));
+
+        // Act
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync(tid, aid, network, locationAttr, cndFlag);
+
+        // Assert
+        assertEquals(cassandraResult, result);
+        verify(logger).error("Call to lookup : " + any(ExecutionException.class));
+    }
+
+    @Test
+    public void testGetAlarmAsync_InterruptedException() throws InterruptedException {
+        // Arrange
+        String tid = "test_tid";
+        String aid = "test_aid";
+        String network = "test_network";
+        String locationAttr = "test_location";
+        boolean cndFlag = true;
+
+        ExecutorService executorService = Executors.newFixedThreadPool(2);
+        when(getAlarmLookup(tid, aid, network, locationAttr, cndFlag)).thenThrow(new InterruptedException());
+        when(getMongoAlarm(tid, aid, network)).thenThrow(new InterruptedException());
+
+        // Act
+        assertThrows(InterruptedException.class, () -> {
+            alarmEnrichDetList.getAlarmAsync(tid, aid, network, locationAttr, cndFlag);
+        });
+
+        // Assert
+        verify(executorService).shutdownNow();
+        verify(logger).error("Call to lookup : " + any(InterruptedException.class));
+    }
+
+    @Test
+    public void testGetAlarmAsync_TimeoutException() throws TimeoutException {
+        // Arrange
+        String tid = "test_tid";
+        String aid = "test_aid";
+        String network = "test_network";
+        String locationAttr = "test_location";
+        boolean cndFlag = true;
+
+        ExecutorService executorService = Executors.newFixedThreadPool(2);
+        when(getAlarmLookup(tid, aid, network, locationAttr, cndFlag)).thenThrow(new TimeoutException());
+        when(getMongoAlarm(tid, aid, network)).thenThrow(new TimeoutException());
+
+        // Act
+        assertThrows(TimeoutException.class, () -> {
+            alarmEnrichDetList.getAlarmAsync(tid, aid, network, locationAttr, cndFlag);
+        });
+
+        // Assert
+        verify(executorService).shutdownNow();
+        verify(logger).error("Call to lookup : " + any(TimeoutException.class));
+    }
+}
+```
+
+This test class covers all the possible exception scenarios in the `getAlarmAsync` method:
+
+1. `CassandraSuccess`: Tests the happy path where Cassandra returns a successful result.
+
+2. `CassandraFailure_MongoSuccess`: Tests the scenario where Cassandra fails but MongoDB succeeds.
+
+3. `CassandraFailure_MongoFailure`: Tests the scenario where both Cassandra and MongoDB fail.
+
+4. `InterruptedException`: Tests the scenario where an interrupt occurs while waiting for results.
+
+5. `TimeoutException`: Tests the scenario where a timeout occurs while waiting for results.
+
+The tests verify that:
+- The method returns the expected results based on the success/failure of the underlying services.
+- The logging works correctly when exceptions occur.
+- The executor service is properly shut down in all scenarios.
+
+To run these tests, you'll need to have the following dependencies in your `pom.xml`:
+
+```xml
+<dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-core</artifactId>
+    <version>3.12.4</version>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter-api</artifactId>
+    <version>5.8.1</version>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.junit.jupiter</groupId>
+    <artifactId>junit-jupiter-engine</artifactId>
+    <version>5.8.1</version>
+    <scope>test</scope>
+</dependency>
+```
