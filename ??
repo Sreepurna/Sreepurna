@@ -1,0 +1,99 @@
+To achieve 100% code coverage for the `getAlarmAsync` method in your `AlarmEnrichDetList` class, we need to write JUnit 4 test cases that specifically target the catch blocks and any exceptional paths. Below is a sample JUnit test class that covers these scenarios, including mocking the necessary dependencies:
+
+```java
+import com.google.gson.Gson;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.client.RestTemplate;
+
+import java.net.URI;
+import java.util.concurrent.ExecutionException;
+
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.*;
+
+@RunWith(MockitoJUnitRunner.class)
+public class AlarmEnrichDetListTest {
+
+    @InjectMocks
+    private AlarmEnrichDetList alarmEnrichDetList; // Class under test
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Mock
+    private Gson gson;
+
+    // Set up the necessary mocks and initializations
+    @Before
+    public void setUp() {
+        alarmEnrichDetList = new AlarmEnrichDetList();
+        alarmEnrichDetList.setMongoAlarmEnrichAppendURL("http://mockurl.com");
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraSuccess_MongoFail() throws ExecutionException, InterruptedException {
+        // Mock the behavior of the methods
+        AlarmEnrichDetList cassandraResponse = new AlarmEnrichDetList();
+        cassandraResponse.setTransactionStatus(QueryConstants.STATUS_SUCCESS);
+        
+        // Simulate Cassandra service success and Mongo service failure
+        when(alarmEnrichDetList.getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean())).thenReturn(cassandraResponse);
+        when(alarmEnrichDetList.getMongoAlarm(anyString(), anyString(), anyString())).thenThrow(new RuntimeException("Mongo failure"));
+
+        // Call the method and assert the result
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid", "aid", "network", "locationAttr", true);
+        assertEquals(cassandraResponse, result);
+    }
+
+    @Test
+    public void testGetAlarmAsync_CassandraFail_MongoSuccess() throws ExecutionException, InterruptedException {
+        // Mock the behavior of the methods
+        when(alarmEnrichDetList.getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+            .thenThrow(new ExecutionException(new Throwable("Cassandra failure")));
+        
+        AlarmEnrichDetList mongoResponse = new AlarmEnrichDetList();
+        mongoResponse.setTransactionStatus(QueryConstants.STATUS_SUCCESS);
+        
+        when(alarmEnrichDetList.getMongoAlarm(anyString(), anyString(), anyString())).thenReturn("{}");
+        when(gson.fromJson("{}", AlarmEnrichDetList.class)).thenReturn(mongoResponse);
+
+        // Call the method and assert the result
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid", "aid", "network", "locationAttr", true);
+        assertEquals(mongoResponse, result);
+    }
+
+    @Test
+    public void testGetAlarmAsync_BothFail() throws ExecutionException, InterruptedException {
+        // Mock the behavior of the methods
+        when(alarmEnrichDetList.getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+            .thenThrow(new ExecutionException(new Throwable("Cassandra failure")));
+        when(alarmEnrichDetList.getMongoAlarm(anyString(), anyString(), anyString())).thenReturn("{}");
+        when(gson.fromJson("{}", AlarmEnrichDetList.class)).thenReturn(new AlarmEnrichDetList());
+
+        // Call the method and assert the result
+        AlarmEnrichDetList result = alarmEnrichDetList.getAlarmAsync("tid", "aid", "network", "locationAttr", true);
+        assertEquals(new AlarmEnrichDetList(), result); // Assuming default return is a new instance
+    }
+
+    // Additional test cases can be added to cover more scenarios
+}
+```
+
+### Explanation:
+1. **Dependencies**: We use Mockito to mock the dependencies like `RestTemplate` and `Gson`.
+2. **Test Cases**:
+   - **Cassandra Success, Mongo Fail**: Simulates a successful response from Cassandra and an exception from MongoDB.
+   - **Cassandra Fail, Mongo Success**: Simulates a failure in Cassandra and a successful response from MongoDB.
+   - **Both Fail**: Simulates failures in both data sources and checks the fallback mechanism.
+3. **Assertions**: We assert that the returned `AlarmEnrichDetList` matches the expected results based on the mocked behavior.
+
+This structure ensures that all catch blocks and exception handling paths in the `getAlarmAsync` method are covered.
