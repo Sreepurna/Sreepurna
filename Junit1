@@ -1,0 +1,125 @@
+```java
+import com.google.gson.Gson;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.Logger;
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.net.URI;
+import java.util.Collections;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+public class AlarmLookupServiceTest {
+
+    @InjectMocks
+    private AlarmLookupService alarmLookupService;
+
+    @Mock
+    private Logger logger; // Mocking the logger to avoid actual logging during tests
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Test
+    public void testGetMongoAlarm_Success() throws Exception {
+        String tid = "testTid";
+        String aid = "testAid";
+        String network = "testNetwork";
+        String expectedResponse = "{\"transactionStatus\":\"SUCCESS\"}"; // Example successful response
+
+
+        HttpHeaders headers = new HttpHeaders();
+        HttpEntity<?> entity = new HttpEntity<>(headers);
+
+        // Mock the RestTemplate exchange method
+        ResponseEntity<String> responseEntity = new ResponseEntity<>(expectedResponse, HttpStatus.OK);
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), eq(entity), eq(String.class))).thenReturn(responseEntity);
+
+        when(alarmLookupService.findServiceForName(anyString())).thenReturn("http://test-service");
+        when(alarmLookupService.addSecurityUrlToMS()).thenReturn(headers);
+
+
+
+        String result = alarmLookupService.getMangoAlarm(tid, aid, network);
+
+        assertEquals(expectedResponse, result);
+
+
+        // Verify interactions (optional)
+        verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+
+    }
+
+    @Test
+    public void testGetMongoAlarm_ServiceNotFound() throws Exception {
+        String tid = "testTid";
+        String aid = "testAid";
+        String network = "testNetwork";
+
+
+        HttpHeaders headers = new HttpHeaders();
+        HttpEntity<?> entity = new HttpEntity<>(headers);
+
+
+        when(alarmLookupService.findServiceForName(QueryConstants.MONGO_ALARM_SERVICE)).thenReturn("");
+        when(alarmLookupService.addSecurityUrlToMS()).thenReturn(headers);
+
+
+        String result = alarmLookupService.getMangoAlarm(tid, aid, network);
+
+        assertEquals(null, result);  // Expect null if service name not found
+    }
+
+
+
+    @Test
+    public void testGetMongoAlarm_RestTemplateError() throws Exception {
+        String tid = "testTid";
+        String aid = "testAid";
+        String network = "testNetwork";
+
+
+        HttpHeaders headers = new HttpHeaders();
+        HttpEntity<?> entity = new HttpEntity<>(headers);
+
+        // Mock the RestTemplate to throw an exception
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), eq(entity), eq(String.class)))
+                .thenThrow(new RuntimeException("RestTemplate error"));
+
+        when(alarmLookupService.findServiceForName(anyString())).thenReturn("http://test-service");
+        when(alarmLookupService.addSecurityUrlToMS()).thenReturn(headers);
+
+
+
+        String result = alarmLookupService.getMangoAlarm(tid, aid, network);
+
+         assertEquals(null, result);
+    }
+}
+
+```
+
+
+Key improvements and explanations for the test cases:
+
+* **Mocking `RestTemplate`:**  The `RestTemplate` is mocked using `@Mock` and `when(...).thenReturn(...)` to simulate different response scenarios (success, error) without making actual network calls.  This isolates the `getMangoAlarm` method's logic for testing.
+* **Mocking the logger:** Mocks the logger to avoid cluttering test output with log messages.
+* **Testing Different Scenarios:**  The test cases cover:
+    * **Successful Response:**  Verifies that the response body is returned correctly.
+    * **Service Not Found:** Checks the scenario where the service URL isn't found.
+    * **RestTemplate Error:** Tests the handling of exceptions during the `restTemplate.exchange` call.
+* **Using `any(URI.class)`:** Uses `any(URI.class)` in the `when` clause to match any URI object, simplifying the mocking setup. Also mocking `findServiceForName` and `addSecurityUrlToMS`
+* **Assertions:** Uses `assertEquals` to verify the expected outcomes.
+* **Clearer Setup:** The test setup is more concise and focused on what's being tested.
+* **`@ExtendWith(MockitoExtension.class)`:**  This is crucial for using Mockito annotations like `@Mock` and `@InjectMocks` in JUnit 5 tests.
+
+
+This improved test suite provides better coverage for the `getMangoAlarm` method and demonstrates how to handle various scenarios, including error conditions.  Remember to add necessary imports and adapt the example JSON response to match your actual API.
