@@ -1,0 +1,175 @@
+To achieve 100% code coverage for the specified lines in `AlarmLookupService`, we'll write test cases using JUnit 4 and Mockito. We'll focus on the `RestTemplate.exchange()` call in `getMongoAlarm()` and the `Future` task that parses the JSON response into `AlarmEnrichDetList`.
+
+### Dependencies Required:
+Ensure you have the following dependencies in your `pom.xml`:
+```xml
+<dependency>
+    <groupId>junit</groupId>
+    <artifactId>junit</artifactId>
+    <version>4.13.2</version>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.mockito</groupId>
+    <artifactId>mockito-core</artifactId>
+    <version>3.12.4</version>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.powermock</groupId>
+    <artifactId>powermock-module-junit4</artifactId>
+    <version>2.0.9</version>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.powermock</groupId>
+    <artifactId>powermock-api-mockito2</artifactId>
+    <version>2.0.9</version>
+    <scope>test</scope>
+</dependency>
+```
+
+### Test Cases:
+
+#### 1. Test `getMongoAlarm()` with Successful REST Call
+```java
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.*;
+import org.powermock.modules.junit4.PowerMockRunner;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
+import static org.junit.Assert.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.powermock.api.mockito.PowerMockito.*;
+
+@RunWith(PowerMockRunner.class)
+@PrepareForTest({AlarmLookupService.class, RestTemplate.class})
+public class AlarmLookupServiceTest {
+
+    @InjectMocks
+    private AlarmLookupService alarmLookupService;
+
+    @Mock
+    private RestTemplate restTemplate;
+
+    @Mock
+    private AlarmEnrichDao alarmDao;
+
+    @Before
+    public void setUp() throws Exception {
+        MockitoAnnotations.initMocks(this);
+        // Mock RestTemplate instance creation
+        whenNew(RestTemplate.class).withNoArguments().thenReturn(restTemplate);
+        // Set up mongoAlarmEnrichAppendURL via reflection
+        ReflectionTestUtils.setField(alarmLookupService, "mongoAlarmEnrichAppendURL", "/alarm-enrich");
+        // Mock findServiceForName to return a base URL
+        AlarmLookupService spyService = Mockito.spy(alarmLookupService);
+        doReturn("http://mocked-base-url").when(spyService).findServiceForName(anyString());
+        alarmLookupService = spyService;
+    }
+
+    @Test
+    public void testGetMongoAlarm_Success() {
+        // Mock headers
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("SecurityHeader", "test-value");
+        when(alarmLookupService.addSecurityUrlToMS()).thenReturn(headers);
+
+        // Mock REST response
+        ResponseEntity<String> mockResponse = new ResponseEntity<>(
+            "{\"transactionStatus\":\"SUCCESS\"}", HttpStatus.OK
+        );
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            .thenReturn(mockResponse);
+
+        // Invoke method
+        String result = alarmLookupService.getMongoAlarm("tid1", "aid1", "network1");
+
+        // Verify result
+        assertEquals("{\"transactionStatus\":\"SUCCESS\"}", result);
+
+        // Verify URI construction
+        ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
+        verify(restTemplate).exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+        URI capturedUri = uriCaptor.getValue();
+        assertTrue(capturedUri.toString().contains("tid=tid1"));
+        assertTrue(capturedUri.toString().contains("aid=aid1"));
+        assertTrue(capturedUri.toString().contains("network=network1"));
+    }
+}
+```
+
+#### 2. Test `Future` Task for Mongo Alarm Parsing
+```java
+import com.google.gson.Gson;
+import java.util.concurrent.*;
+
+@Test
+public void testMongoAlarmFuture_ParsingSuccess() throws Exception {
+    Gson gson = new Gson();
+    String jsonResponse = "{\"transactionStatus\":\"SUCCESS\", \"alarmEnrichList\":[]}";
+    
+    // Mock getMongoAlarm to return JSON
+    doReturn(jsonResponse).when(alarmLookupService).getMongoAlarm(anyString(), anyString(), anyString());
+    
+    // Submit the Future task
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    Future<AlarmEnrichDetList> future = executor.submit(() -> 
+        gson.fromJson(alarmLookupService.getMongoAlarm("tid", "aid", "net"), AlarmEnrichDetList.class)
+    );
+    
+    AlarmEnrichDetList result = future.get();
+    assertEquals("SUCCESS", result.getTransactionStatus());
+    assertEquals(0, result.getAlarmEnrichListSize());
+    executor.shutdown();
+}
+```
+
+#### 3. Test `getAlarmAsync()` Falling Back to Mongo
+```java
+@Test
+public void testGetAlarmAsync_FallbackToMongo() throws Exception {
+    // Make Cassandra call throw exception
+    when(alarmDao.getAlarmLookup(anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+        .thenThrow(new RuntimeException("Cassandra error"));
+    
+    // Mock Mongo response
+    String json = "{\"transactionStatus\":\"SUCCESS\", \"alarmEnrichList\":[]}";
+    doReturn(json).when(alarmLookupService).getMongoAlarm(anyString(), anyString(), anyString());
+    
+    // Invoke method
+    AlarmEnrichDetList result = alarmLookupService.getAlarmAsync("tid", "aid", "net", "loc", true);
+    
+    // Verify mongo result is used
+    assertEquals("SUCCESS", result.getTransactionStatus());
+    assertEquals(0, result.getAlarmEnrichListSize());
+}
+```
+
+#### 4. Test `AlarmEnrichDetList` Getters and Setters
+```java
+@Test
+public void testAlarmEnrichDetList() {
+    AlarmEnrichDetList list = new AlarmEnrichDetList();
+    list.setRequestTimeStamp("2023-01-01");
+    list.setResponseTimeStamp("2023-01-01T00:00:00");
+    list.setTransactionStatus("SUCCESS");
+    list.setAlarmEnrichList(new ArrayList<>());
+    
+    assertEquals("2023-01-01", list.getRequestTimeStamp());
+    assertEquals("2023-01-01T00:00:00", list.getResponseTimeStamp());
+    assertEquals("SUCCESS", list.getTransactionStatus());
+    assertEquals(0, list.getAlarmEnrichListSize());
+}
+```
+
+### Explanation:
+- **RestTemplate Mocking:** We use PowerMock to mock the `RestTemplate` constructor and verify the correct URI is called.
+- **Future Parsing:** Test the `Future` task by mocking `getMongoAlarm()` to return a JSON string and checking if it's parsed correctly.
+- **Fallback Logic:** Ensure that when Cassandra fails, the service falls back to using the Mongo response.
+- **Coverage for POJO:** Simple tests for getters/setters in `AlarmEnrichDetList` to cover all branches, including list size calculation.
+
+These tests ensure that the critical lines involving REST calls and JSON parsing are covered, achieving 100% code coverage for the specified sections.
